@@ -13,18 +13,27 @@ stages:
   - test
 
 jobs:
-  # 1. SAST e Análise de Dependências (Shift-Left)
+  # 1. SAST Real com GitHub CodeQL (Análise Estática de Segurança)
   sast-security:
     stage: security
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
-      - name: Executar Análise Estática de Segurança (SAST)
-        run: echo "Executando varredura de vulnerabilidades estáticas..."
-        # Aqui entraria a ferramenta de SAST (ex: njsscan, SonarQube)
 
-  # 2. Build / Compilação
+      - name: Inicializar o CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Análise Automática CodeQL (SAST)
+        uses: github/codeql-action/analyze@v3
+
+  # 2. Build / Compilação da Aplicação
   build-app:
     stage: build
     needs: sast-security
@@ -32,23 +41,26 @@ jobs:
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
+
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
           cache: 'npm'
-      - name: Instalar dependências e Compilar
+
+      - name: Instalar dependências, Gerar Prisma e Compilar
         run: |
           npm ci
           npx prisma generate
           npm run build
+
       - name: Salvar artefato de build
         uses: actions/upload-artifact@v4
         with:
           name: build-artifact
           path: dist/
 
-  # 3. Lint & Quality (Roda em paralelo após o build)
+  # 3. Lint & Quality Real (ESLint)
   lint-quality:
     stage: quality
     needs: [build-app]
@@ -56,17 +68,20 @@ jobs:
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
+
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
           cache: 'npm'
+
       - name: Instalar dependências
         run: npm ci
-      - name: Executar Lint e Qualidade
+
+      - name: Executar Lint
         run: npm run lint
 
-  # 4. Testes Unitários e de Integração
+  # 4. Testes Unitários Reais (Jest)
   test-unit:
     stage: test
     needs: [build-app]
@@ -74,12 +89,15 @@ jobs:
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
+
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20.x'
           cache: 'npm'
+
       - name: Instalar dependências
         run: npm ci
-      - name: Executar Testes Automatizados
-        run: npm test
+
+      - name: Executar Testes Automatizados (Jest)
+        run: npm test -- --ci --coverage
