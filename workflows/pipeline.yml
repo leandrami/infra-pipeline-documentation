@@ -1,0 +1,103 @@
+name: Pipeline CI/CD - Projeto Observabilidade
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+stages:
+  - security
+  - build
+  - quality
+  - test
+
+jobs:
+  # 1. SAST Real com GitHub CodeQL (Análise Estática de Segurança)
+  sast-security:
+    stage: security
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Inicializar o CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Análise Automática CodeQL (SAST)
+        uses: github/codeql-action/analyze@v3
+
+  # 2. Build / Compilação da Aplicação
+  build-app:
+    stage: build
+    needs: sast-security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Instalar dependências, Gerar Prisma e Compilar
+        run: |
+          npm ci
+          npx prisma generate
+          npm run build
+
+      - name: Salvar artefato de build
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact
+          path: dist/
+
+  # 3. Lint & Quality Real (ESLint)
+  lint-quality:
+    stage: quality
+    needs: [build-app]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar Lint
+        run: npm run lint
+
+  # 4. Testes Unitários Reais (Jest)
+  test-unit:
+    stage: test
+    needs: [build-app]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar Testes Automatizados (Jest)
+        run: npm test -- --ci --coverage
